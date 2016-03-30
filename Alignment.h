@@ -28,8 +28,8 @@ class Alignment {
 	void writeStringsToFile(string v, string w, float score);
 
 public:
-	Alignment();
-	double globalAlignment(string v, string w, ScoringMatrix* sm);
+	Alignment(size_t size);
+	double globalAlignment(string v, string w, ScoringMatrix* sm, int index);
 	double addDeletion(unsigned int index, unsigned int letterIndex);
 	double addSubstitution(unsigned int wordIndex, 
 		unsigned int letterIndex,

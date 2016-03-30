@@ -3,7 +3,9 @@
 #include <vector>
 #include "ScoringMatrix.h"
 #include "Alignment.h"
+#include <math.h>
 
+#include <omp.h>
 
 using namespace std;
 
@@ -44,12 +46,15 @@ class Worker {
 	string readFastaSpecial(vector<string>& reads, string path);
 	vector<string> split(const string& str, char delim);
 	vector<string>& split(const string& str, char delim, vector<string>& e);
+	void progressUpdate(int start, int stop, int initial, int interval, double& prev);
+	void outputRecord(record rec);
+	void outputSeparator();
 
 public:
 	Worker(string scoreMatPath);
 	void runOneToAll(std::string candidate, record& rec);
-	void run(string dataPath);
-	void run(int start, int stop, string dataPath);
+	void run(string dataPath, string format);
+	void run(size_t start, size_t stop, string dataPath, string format);
 	~Worker();
 };
 

@@ -1,17 +1,20 @@
 #include "Alignment.h"
 #include <chrono>
 
-Alignment::Alignment(){ 
-	ofstream file;
-	file.open("results.txt");
-	std::chrono::time_point<std::chrono::system_clock> now;
-	now = std::chrono::system_clock::now();
-	std::time_t time = std::chrono::system_clock::to_time_t(now);
-	file << "File was produced at: " << std::ctime(&time);
-	file << "\n";
+Alignment::Alignment(size_t size){ 
+	//ofstream file;
+	//file.open("test.txt");
+	//std::chrono::time_point<std::chrono::system_clock> now;
+	//now = std::chrono::system_clock::now();
+	//std::time_t time = std::chrono::system_clock::to_time_t(now);
+	//file << "File was produced at: " << std::ctime(&time);
+	//file << "\n";
+
+	forwardScores.resize(size);
+	reverseScores.resize(size);
 }
 
-double Alignment::globalAlignment(std::string v, std::string w, ScoringMatrix* sm) {
+double Alignment::globalAlignment(std::string v, std::string w, ScoringMatrix* sm, int index) {
 	unsigned int x = v.size() + 1;
 	unsigned int y = w.size() + 1;
 	arma::mat backtrack(x, y);
@@ -23,13 +26,13 @@ double Alignment::globalAlignment(std::string v, std::string w, ScoringMatrix* s
 	double score = getBacktrackMatrix(v, w, sm, backtrack, scoreMat);
 	
 
-	forwardScores.push_back(scoreMat);
+	forwardScores[index] = scoreMat;
 
 	string string1;
 	string string2;
 	traceback(backtrack, v, w, string1, string2);
-	writeStringsToFile(string1, string2, score);
-	writeMatToFile(scoreMat);
+	//writeStringsToFile(string1, string2, score);
+	//writeMatToFile(scoreMat);
 	//---------------------------------------------
 	//The reverse alignment returns the same score
 	//---------------------------------------------
@@ -45,7 +48,7 @@ double Alignment::globalAlignment(std::string v, std::string w, ScoringMatrix* s
 	scoreMatRev.fill(0);
 
 	getBacktrackMatrix(rev_v, rev_w, sm, backtrackRev, scoreMatRev);
-	reverseScores.push_back(scoreMatRev);
+	reverseScores[index] = scoreMatRev;
 
 	return(score);
 }
@@ -239,7 +242,7 @@ Alignment::~Alignment() { }
 void Alignment::writeMatToFile(arma::mat& matrix) {
 	ofstream file;
 	arma::mat scoreMat = matrix.t();
-	file.open("results.txt", ios::app);
+	file.open("test.txt", ios::app);
 	for (int i = 0; i < scoreMat.n_rows; i++) {
 		for (int j = 0; j < scoreMat.n_cols; j++) {
 			file << fixed;
@@ -256,7 +259,7 @@ void Alignment::writeMatToFile(arma::mat& matrix) {
 
 void Alignment::writeStringsToFile(string v, string w, float score) {
 	ofstream file;
-	file.open("results.txt", ios::app);
+	file.open("test.txt", ios::app);
 	file << "--------------------------------\n";
 	file << "Score: " << score << "\n";
 	file <<  v  << "\n";

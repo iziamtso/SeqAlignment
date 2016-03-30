@@ -1,13 +1,24 @@
 #include "Worker.h"
+#include <chrono>
+
 
 Worker::Worker(string scoreMatPath){
+	ofstream file;
+	file.open("results.txt");
+	std::chrono::time_point<std::chrono::system_clock> now;
+	now = std::chrono::system_clock::now();
+	std::time_t time = std::chrono::system_clock::to_time_t(now);
+	file << "File was produced at: " << std::ctime(&time);
+	file << "\n";
+	file.close();
+
 	//Parse scoring matrix
 	scoreMat = new ScoringMatrix(5, 5);
 	scoreMat->loadMatrix(scoreMatPath);
 	filePos = 0;
 }
 
-void Worker::run(string dataPath) {
+void Worker::run(string dataPath, string format) {
 	//Parse Fasta file (DNA)
 	readFasta(reads, dataPath);
 
@@ -15,55 +26,77 @@ void Worker::run(string dataPath) {
 	std::string candidate = reads[0];
 	record rec;
 	std::string prev_candidate = "";
-
+	outputSeparator();
 	
-	int count = 0; //Delete this later
 	while(candidate.compare(prev_candidate)) {
-		std::cout << "Iteration: " << count <<"-----------------------------------------" << std::endl;
-
 		prev_candidate = candidate;
+		std::transform(prev_candidate.begin(), prev_candidate.end(), prev_candidate.begin(), ::tolower);
 		runOneToAll(candidate, rec);
 		candidate = rec.read;
-
-		count++;
-		std::cout << "-----------------------------------------" << std::endl;
+		if (format == "verbose") {
+			outputRecord(rec);
+		}
 	}
 
 	//Record the rec
+	if (format == "short") {
+		outputRecord(rec);
+	}
+	outputSeparator();
 }
 
-void Worker::run(int start, int stop, string dataPath) {
+void Worker::run(size_t start, size_t stop, string dataPath, string format) {
+	size_t initial = start;
+	double interval = 5;
+	double prev = 0;
+
 	while (start < stop) {
+		progressUpdate(start, stop, initial, interval, prev);
+		
 		//Parse Fasta file (DNA)
 		//Find the candidate
 		std::string candidate = readFastaSpecial(reads, dataPath);
+		if (reads.size() == 0) {
+			return;
+		}
 
 		record rec;
 		std::string prev_candidate = "";
+
+		outputSeparator(); //---------
 
 		while (candidate.compare(prev_candidate)) {
 			prev_candidate = candidate;
 			runOneToAll(candidate, rec);
 			candidate = rec.read;
+			if (format == "verbose") {
+				outputRecord(rec);
+			}
 		}
 
 		//Record the rec
-		//Ad hoc just writting it down
-		//std::cout <<"Bubble: " <<start <<" final str: " << rec.read <<" score: "<< rec.score << std::endl;
+		if (format == "short") {
+			outputRecord(rec);
+		}
+
+		outputSeparator(); //---------
 		start++;
 	}
 }
 
 void Worker::runOneToAll(std::string candidate, record& rec) {
 	double score = 0;
-	Alignment align;
+	Alignment align(reads.size());
 	//Global
-	for each (string read in reads) {
-		score += align.globalAlignment(candidate, read, scoreMat);
+	#pragma omp parallel for schedule(dynamic) reduction(+ : score)
+	for (int i = 0; i < reads.size(); ++i) {
+		score += align.globalAlignment(candidate, reads[i], scoreMat, i);
 	}
+
 	rec.methodUsed = "global";
 	rec.score = score;
 	rec.read = candidate;
+	std::transform(rec.read.begin(), rec.read.end(), rec.read.begin(), ::tolower);
 
 	//Test
 	//std::cout << "Global: " << candidate << " score: " << score << std::endl;
@@ -71,6 +104,8 @@ void Worker::runOneToAll(std::string candidate, record& rec) {
 	//Deletion
 	for (int del_index = 0; del_index < candidate.size(); del_index++) {
 		score = 0;
+
+		#pragma omp parallel for schedule(dynamic) reduction(+ : score)
 		for (int i = 0; i < reads.size(); i++) {
 			score += align.addDeletion(i, del_index + 1);
 		}
@@ -98,8 +133,9 @@ void Worker::runOneToAll(std::string candidate, record& rec) {
 			if (letter == toupper(candidate[sub_index])) {
 				continue;
 			}
-
 			score = 0;
+
+			#pragma omp parallel for schedule(dynamic) reduction(+ : score)
 			for (int i = 0; i < reads.size(); i++) {
 				score += align.addSubstitution(i, sub_index + 1, letter, reads[i], scoreMat);
 			}
@@ -127,6 +163,8 @@ void Worker::runOneToAll(std::string candidate, record& rec) {
 	for (int ins_index = 0; ins_index < candidate.size()+1; ins_index++) {
 		for each (char letter in alphabet) {
 			score = 0;
+
+			#pragma omp parallel for schedule(dynamic) reduction(+ : score)
 			for (int i = 0; i < reads.size(); i++) {
 				score += align.addInsertion(i, ins_index + 1, letter, reads[i], scoreMat);		
 			}
@@ -150,6 +188,38 @@ void Worker::runOneToAll(std::string candidate, record& rec) {
 	}	
 }
 
+void Worker::outputRecord(record rec) {
+	ofstream file;
+	file.open("results.txt", ios::app);
+
+	file << fixed;
+	file << setw(22) << left << "Consensus: " << right << rec.read << "\n";
+	file << setw(22) << left << "Score: " <<right << std::setprecision(2) << rec.score << "\n";
+	file << setw(22) << left << "Last method applied: " << right << rec.methodUsed << "\n";
+	
+
+	if (rec.methodUsed == "deletion") {
+		file << "Char at index: " << rec.del_index << " was deleted. \n";
+	}
+	else if (rec.methodUsed == "substitution") {
+		file << "Char at index " << rec.sub_index << " was substituted with " 
+			<<"'"<< rec.sub_letter <<"'"<< ".\n";
+	}
+	else if (rec.methodUsed == "insertion") {
+		file << "'"<<rec.ins_letter <<"'"<< " was inserted at index " << rec.ins_index << ".\n";
+	}
+	file << "\n";
+	//file << "\n";
+	file.close();
+}
+
+void Worker::outputSeparator() {
+	ofstream file;
+	file.open("results.txt", ios::app);
+	file << "------------------------------------------ \n";
+	file.close();
+}
+
 void Worker::readFasta(vector<string>& reads, string path) {
 	std::string line;
 	std::ifstream file(path);
@@ -167,13 +237,18 @@ void Worker::readFasta(vector<string>& reads, string path) {
 string Worker::readFastaSpecial(vector<string>& reads, string path) {
 	std::string line;
 	std::ifstream file(path, std::ios::binary);
-	string candidate; 
+	string candidate;
+	reads.clear();
 
 	if (file.is_open()) {
 		//Get to the current bubble
 		file.seekg(filePos, file.beg);
 
 		getline(file, line);
+		if (line == "") {
+			std::cerr << "End of the file reached. 'end' value might exceed number of bubbles. \n";
+			return "";
+		}
 		vector<string> elems = split(line, ' ');
 		
 		string marker = elems[0];
@@ -187,7 +262,6 @@ string Worker::readFastaSpecial(vector<string>& reads, string path) {
 
 		//Get all appropriate string for the current bubble
 		int count = 0;
-		reads.clear();
 		while (getline(file, line) && count < numOfReads) {
 			if (line[0] == '>' || line == "") {
 				continue;
@@ -208,6 +282,16 @@ std::vector<std::string>& Worker::split(const std::string &s, char delim, std::v
 		elems.push_back(item);
 	}
 	return elems;
+}
+
+void Worker::progressUpdate(int start, int stop, int initial, int interval, double& prev) {
+	double done = start - initial;
+	double total = stop - initial;
+	double progress = done / total * 100;
+	if (progress >= prev) {
+		std::cout << "Completed: " << setw(2) << progress << "%" << std::endl;
+		prev += interval;
+	}
 }
 
 std::vector<std::string> Worker::split(const std::string &s, char delim) {
